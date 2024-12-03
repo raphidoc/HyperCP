@@ -78,7 +78,7 @@ class RhoCorrections:
             zhang, _ = RhoCorrections.ZhangCorr(windSpeedMean, AOD, cloud, SZAMean, wTemp, sal, relAzMean, newWaveBands)
             # this is the method to read zhang from the LUT. It is commented out pending the sensitivity study and
             # correction to the interpolation errors that have been noted.
-            # zhang = RhoCorrections.read_Z17_LUT(windSpeedMean, AOD, SZAMean, wTemp, sal, relAzMean, newWaveBands, None)
+            zhang = RhoCorrections.read_Z17_LUT(windSpeedMean, AOD, SZAMean, wTemp, sal, relAzMean, newWaveBands, zhang)
 
             # |M99 - Z17| is an estimation of model error, added to MC M99 uncertainty in quadrature to give combined
             # uncertainty
@@ -197,29 +197,58 @@ class RhoCorrections:
         """
         db_path = os.path.join(PATH_TO_DATA, 'Zhang_rho_LUT.nc')
 
-        with xr.open_dataset(db_path, engine='netcdf4') as LUT:
-            zhang_ws = LUT.interp({"wind": ws}, method='linear')
-            zhang_sza = zhang_ws.interp({"sza": sza}, method='linear')
-            zhang_aod = zhang_sza.interp({"aot": aod}, method='linear')
-            zhang_wt = zhang_aod.interp({"SST": wt}, method='linear')
-            zhang_sal = zhang_wt.interp({"sal": sal}, method='linear')
-            zhang_rel_az = zhang_sal.interp({"relAz": rel_az}, method='linear').Glint.values
+        z17_lut = xr.open_dataset(db_path, engine='netcdf4')
+
+        import scipy.interpolate as spin
+
+        zhang_L = spin.interpn(
+            points=(
+                z17_lut.wind.values,
+                z17_lut.aot.values,
+                z17_lut.sza.values,
+                z17_lut.relAz.values,
+                z17_lut.sal.values,
+                z17_lut.SST.values,
+                z17_lut.wavelength.values
+            ),
+            values=z17_lut.Glint.values,
+            xi=(
+                ws,
+                aod,
+                sza,
+                rel_az,
+                sal,
+                wt,
+                nwb
+            ),
+            method="linear",
+        )
+
+        # with xr.open_dataset(db_path, engine='netcdf4') as LUT:
+        #     zhang_ws = LUT.interp({"wind": ws}, method='linear')
+        #     zhang_sza = zhang_ws.interp({"sza": sza}, method='linear')
+        #     zhang_aod = zhang_sza.interp({"aot": aod}, method='linear')
+        #     zhang_wt = zhang_aod.interp({"SST": wt}, method='linear')
+        #     zhang_sal = zhang_wt.interp({"sal": sal}, method='linear')
+        #     zhang_rel_az = zhang_sal.interp({"relAz": rel_az}, method='linear').Glint.values
 
         # plotting commented here for use in testing phase
         # zhang_L = np.interp(nwb, LUT.wavelength.values, zhang_rel_az)
 
-        # plt.figure("LUT-Interp")
-        # plt.plot(nwb, zhang_L, label='Piecewise-all-linear', linestyle='--', color='r')
-        # plt.plot(nwb, zhang, label='Calculated', linestyle='--', color='k')
+        plt.figure("LUT-Interp")
+        plt.plot(nwb, zhang_L, label='scipy interpn linear', linestyle='--', color='r')
+        plt.plot(nwb, zhang, label='Calculated', linestyle='--', color='k')
 
-        # plt.legend()
-        # plt.xlabel("Wavelength (nm)")
-        # plt.ylabel("Zhang rho")
-        # plt.grid()
-        # plt.title("Comparison of interpolation methods used to read Z17 LUT")
-        # plt.savefig("Z17_LUT_interp_compare.png")
+        plt.legend()
+        plt.xlabel("Wavelength (nm)")
+        plt.ylabel("Zhang rho")
+        plt.grid()
+        plt.title("Comparison of interpolation methods used to read Z17 LUT")
+        plt.show()
 
-        # plt.close("LUT-Interp")  # close the figure so it cannot interact with others (good encapsulation)
+        plt.savefig("Z17_LUT_interp_compare.png")
+
+        plt.close("LUT-Interp")  # close the figure so it cannot interact with others (good encapsulation)
 
         # using numpy interp in the end for wavelength as per Tom's suggestion. Not important since wavebands
         # match LUT in test case (I used Pysas wavebands to generate LUT).
